@@ -110,7 +110,7 @@ fn decimal<I>() -> impl Parser<I, Output = f64>
 }
 
 
-pub(crate) fn parse_number_expr<I>() -> impl Parser<I, Output = Expr>
+pub fn parse_number_expr<I>() -> impl Parser<I, Output = Expr>
 where
     I: Stream<Token = char>,
     I::Error: ParseError<I::Token, I::Range, I::Position>,
