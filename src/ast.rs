@@ -1,4 +1,6 @@
 use std::fmt::{self, Display, Formatter};
+use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
 
 #[derive(Debug, PartialEq)]
 pub struct Prototype {
@@ -39,6 +41,8 @@ impl Function {
 
 #[derive(Debug, PartialEq)]
 pub enum Expr {
+  Int(BigInt),
+  Uint(BigInt),
   Number(f64),
   Variable(String),
   BinOp {
@@ -56,6 +60,8 @@ pub enum Expr {
 impl Display for Expr {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     match self {
+      Expr::Int(n) => write!(f, "Expr::Int({})", n),
+      Expr::Uint(n) => write!(f, "Expr::Uint({})", n),
       Expr::Number(n) => {
         let n = format!("{:.4}", n);
         write!(f, "Expr::Number({})", n)
@@ -76,6 +82,8 @@ impl Display for Expr {
 impl Expr {
   pub fn eval(&self) -> f64 {
     match self {
+      Expr::Int(n) => n.to_f64().unwrap(),
+      Expr::Uint(n) => n.to_f64().unwrap(),
       Expr::Number(n) => *n,
       Expr::Variable(_) => 0.0,
       Expr::BinOp { op, lhs, rhs } => {

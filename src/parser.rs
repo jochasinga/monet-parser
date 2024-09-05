@@ -4,6 +4,8 @@ use combine::{between, choice, many1, sep_by, ParseError, Parser};
 use combine::parser::repeat::chainl1;
 use combine::stream::Stream;
 use combine::parser;
+use num_bigint::BigInt;
+use num_traits::FromPrimitive;
 
 use crate::ast::{Expr, Prototype, Function};
 
@@ -79,43 +81,52 @@ where
   between(char('('), char(')'), expr_parser())
 }
 
-fn integer_part<I>() -> impl Parser<I, Output = f64>
+fn integer_part<I>() -> impl Parser<I, Output = i64>
   where I: Stream<Token = char>,
         I::Error: ParseError<I::Token, I::Range, I::Position>,
 {
-  many1(digit()).map(|string: String| string.parse::<f64>().unwrap())
+  many1(digit()).map(|int: String| int.parse::<i64>().unwrap())
 }
 
-fn decimal_part<I>() -> impl Parser<I, Output = f64>
+fn decimal_part<I>() -> impl Parser<I, Output = i64>
   where I: Stream<Token = char>,
         I::Error: ParseError<I::Token, I::Range, I::Position>,
 {
-  many1(digit()).map(|digits: String| {
-    let mut decimal = "0.".to_owned();
-    decimal.push_str(&digits);
-    decimal.parse::<f64>().unwrap()
-  })
+  integer_part()
 }
 
-fn decimal<I>() -> impl Parser<I, Output = f64>
+fn integer<I>() -> impl Parser<I, Output = BigInt>
   where I: Stream<Token = char>,
         I::Error: ParseError<I::Token, I::Range, I::Position>,
 {
-  optional(integer_part())
-    .skip(char('.'))
-    .and(optional(decimal_part()))
-    .map(|(integer, decimal)| integer
-    .unwrap_or(0.0) + decimal
-    .unwrap_or(0.0))
+  many1(digit())
+    .map(|digits: String| digits.parse::<BigInt>().unwrap())
 }
 
-
-pub fn parse_number_expr<I>() -> impl Parser<I, Output = Expr>
+pub(crate) fn parse_number_expr<I>() -> impl Parser<I, Output = Expr>
 where
     I: Stream<Token = char>,
     I::Error: ParseError<I::Token, I::Range, I::Position>,
 {
-  decimal().map(Expr::Number)
+  (
+    optional(integer_part()),
+    optional(char('.').with(optional(decimal_part()))),
+  )
+    .map(|(int, dec)| {
+        match (int, dec) {
+          (Some(int), None) => Expr::Int(BigInt::from_i64(int).unwrap()),
+          (Some(int), Some(None)) => Expr::Number(int as f64),
+          (None, Some(Some(d))) => {
+            let n = "0.".to_owned() + &d.to_string();
+            Expr::Number(n.parse::<f64>().unwrap())
+          },
+          (Some(int), Some(Some(d))) => {
+            let n = format!("{}.{}", int, d);
+            Expr::Number(n.parse::<f64>().unwrap())
+          },
+          (None, Some(None)) | (None, None) => panic!("NaN"),
+        }
+      })
 }
 
 fn expr_<'a, I>() -> impl Parser<I, Output = Expr>
@@ -207,14 +218,19 @@ where
 
 #[cfg(test)]
 mod tests {
-  use combine::Parser;
-  use crate::ast::*;
   use super::*;
+
+  use combine::Parser;
+  use num_traits::FromPrimitive;
+  use crate::ast::*;
   use Expr::*;
 
   #[test]
   fn test_lt_op_precedence() {
-    let result = expression_parser().parse("3.0 < 4.0 * 2.0").unwrap().0;
+    let result = expression_parser()
+      .parse("3.0 < 4.0 * 2.0")
+      .unwrap().0;
+
     let expected = BinOp {
       op: '<',
       lhs: Box::new(Number(3.0)),
@@ -316,10 +332,21 @@ mod tests {
   }
 
   #[test]
-  fn test_simple_number() {
-    let result = expression_parser().parse("32.1").unwrap().0;
-    let expected = Number(32.1);
-    assert_eq!(result, expected);
+  fn test_simple_numbers() {
+    let numstrs: Vec<(&str, Expr)> = vec![
+      ("100",      Int(BigInt::from_i64(100).unwrap())),
+      ("10000",      Int(BigInt::from_i64(10000).unwrap())),
+      ("03",      Int(BigInt::from_i64(3).unwrap())),
+      (".13",      Number(0.13),),
+      ("12.",    Number(12.0),),
+      ("21.0",    Number(21.0),),
+      ("32.1",   Number(32.1),),
+      ("3.1418", Number(3.1418),),
+    ];
+
+    for (tt, expr) in numstrs {
+      do_test(tt, expression_parser())(&expr);
+    }
   }
 
   #[test]
@@ -341,12 +368,28 @@ mod tests {
     assert_eq!(result, Expr::Number(44.2));
   }
 
+  fn do_test<'a>(n: &'a str, mut p: impl Parser<&'a str, Output = Expr>) -> impl FnMut(&'a Expr) 
+  {
+    move |expr: &'a Expr| {
+      let result = p.parse(n).unwrap().0;
+      assert_eq!(result, *expr);
+    }
+  }
+
   #[test]
-  fn test_number() {
-    let result = parse_number_expr().parse("3.14").unwrap().0;
-    assert_eq!(result, Expr::Number(3.14));
-    let result = parse_number_expr().parse("30.0").unwrap().0;
-    assert_eq!(result, Expr::Number(30.0));
+  fn test_number_parser() {
+    let numstrs: Vec<(&str, Expr)> = vec![
+      ("100",    Int(BigInt::from_i64(100).unwrap())),
+      ("10000",  Int(BigInt::from_i64(10000).unwrap())),
+      ("12.",    Number(12.0),),
+      ("21.0",   Number(21.0),),
+      ("32.1",   Number(32.1),),
+      ("3.1418", Number(3.1418),),
+    ];
+
+    for (tt, expr) in numstrs {
+      do_test(tt, parse_number_expr())(&expr);
+    }
   }
 
   #[test]

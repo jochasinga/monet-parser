@@ -8,6 +8,8 @@ edition = "2021"
 
 [dependencies]
 combine = "4.6.6"
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
 
 [lib]
 name = "parser"
